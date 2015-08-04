@@ -236,6 +236,7 @@ runTests() {
   kube::test::get_object_assert 'pods/valid-pod' "{{$id_field}}" 'valid-pod'
   # Describe command should print detailed information
   kube::test::describe_object_assert pods 'valid-pod' "Name:" "Image(s):" "Node:" "Labels:" "Status:" "Replication Controllers"
+  kubectl describe "${kube_flags[@]}" pods
 
   ### Dump current valid-pod POD
   output_pod=$(kubectl get pod valid-pod -o yaml --output-version=v1 "${kube_flags[@]}")
@@ -320,6 +321,8 @@ runTests() {
   kubectl create -f examples/redis/redis-proxy.yaml "${kube_flags[@]}"
   # Post-condition: valid-pod and redis-proxy PODs are running
   kube::test::get_object_assert pods "{{range.items}}{{$id_field}}:{{end}}" 'redis-proxy:valid-pod:'
+  # Describe command should print detailed information
+  kubectl describe "${kube_flags[@]}" pods
 
   ### Delete multiple PODs at once
   # Pre-condition: valid-pod and redis-proxy PODs are running

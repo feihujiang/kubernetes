@@ -52,6 +52,9 @@ $ kubectl describe nodes kubernetes-minion-emt8.c.myproject.internal
 // Describe a pod
 $ kubectl describe pods/nginx
 
+// Describe all pods
+$ kubectl describe pods
+
 // Describe pods by label name=myLabel
 $ kubectl describe po -l name=myLabel
 
@@ -93,7 +96,7 @@ func RunDescribe(f *cmdutil.Factory, out io.Writer, cmd *cobra.Command, args []s
 		ContinueOnError().
 		NamespaceParam(cmdNamespace).DefaultNamespace().
 		SelectorParam(selector).
-		ResourceTypeOrNameArgs(false, args...).
+		ResourceTypeOrNameArgs(true, args...).
 		Flatten().
 		Do()
 	err = r.Err()
