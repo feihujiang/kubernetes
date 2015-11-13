@@ -93,11 +93,12 @@ func NewCmdAnnotate(f *cmdutil.Factory, out io.Writer) *cobra.Command {
 			if err := options.Validate(args); err != nil {
 				cmdutil.CheckErr(cmdutil.UsageError(cmd, err.Error()))
 			}
-			if err := options.RunAnnotate(f); err != nil {
+			if err := options.RunAnnotate(f, out, cmd); err != nil {
 				cmdutil.CheckErr(err)
 			}
 		},
 	}
+	cmdutil.AddPrinterFlags(cmd)
 	cmd.Flags().BoolVar(&options.overwrite, "overwrite", false, "If true, allow annotations to be overwritten, otherwise reject annotation updates that overwrite existing annotations.")
 	cmd.Flags().BoolVar(&options.all, "all", false, "select all resources in the namespace of the specified resource types")
 	cmd.Flags().StringVar(&options.resourceVersion, "resource-version", "", "If non-empty, the annotation update will only succeed if this is the current resource-version for the object. Only valid when specifying a single resource.")
@@ -169,11 +170,13 @@ func (o AnnotateOptions) Validate(args []string) error {
 }
 
 // RunAnnotate does the work
-func (o AnnotateOptions) RunAnnotate(f *cmdutil.Factory) error {
+func (o AnnotateOptions) RunAnnotate(f *cmdutil.Factory, out io.Writer, cmd *cobra.Command) error {
 	r := o.builder.Do()
 	if err := r.Err(); err != nil {
 		return err
 	}
+
+	mapper, _ := f.Object()
 
 	return r.Visit(func(info *resource.Info, err error) error {
 		if err != nil {
@@ -204,8 +207,18 @@ func (o AnnotateOptions) RunAnnotate(f *cmdutil.Factory) error {
 		}
 		helper := resource.NewHelper(client, mapping)
 
-		_, err = helper.Patch(namespace, name, api.StrategicMergePatchType, patchBytes)
-		return err
+		var outputObj runtime.Object
+		outputObj, err = helper.Patch(namespace, name, api.StrategicMergePatchType, patchBytes)
+		if err != nil {
+			return err
+		}
+
+		outputFormat := cmdutil.GetFlagString(cmd, "output")
+		if outputFormat != "" {
+			return f.PrintObject(cmd, outputObj, out)
+		}
+		cmdutil.PrintSuccess(mapper, false, out, info.Mapping.Resource, info.Name, "annotated")
+		return nil
 	})
 }
 
