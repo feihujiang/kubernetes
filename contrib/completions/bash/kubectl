@@ -977,6 +977,8 @@ _kubectl_annotate()
     flags_completion+=("__handle_filename_extension_flag json|yaml|yml")
     flags+=("--overwrite")
     flags+=("--resource-version=")
+    flags+=("--selector=")
+    two_word_flags+=("-l")
 
     must_have_one_flag=()
     must_have_one_noun=()
