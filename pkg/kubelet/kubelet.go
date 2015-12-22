@@ -2225,6 +2225,12 @@ func (kl *Kubelet) rejectPod(pod *api.Pod, reason, message string) {
 // can be admitted, a brief single-word reason and a message explaining why
 // the pod cannot be admitted.
 func (kl *Kubelet) canAdmitPod(pods []*api.Pod, pod *api.Pod) (bool, string, string) {
+	//	glog.Infof("Pod %q canAdmitPod %v", format.Pod(pod), pod.Annotations)
+	if pod.Annotations != nil {
+		if value, found := pod.Annotations[schedulerConflict]; len(value) > 0 && found {
+			return false, "ManualConflict", "cannot start the pod due to host manual conflict."
+		}
+	}
 	if hasHostPortConflicts(pods) {
 		return false, "HostPortConflict", "cannot start the pod due to host port conflict."
 	}
@@ -2242,6 +2248,7 @@ func (kl *Kubelet) canAdmitPod(pods []*api.Pod, pod *api.Pod) (bool, string, str
 	}
 
 	return true, "", ""
+	//return false, "SchedulerConflict", "test scheduler pod conflict"
 }
 
 // syncLoop is the main loop for processing changes. It watches for changes from
@@ -2366,6 +2373,9 @@ func (kl *Kubelet) handleMirrorPod(mirrorPod *api.Pod, start time.Time) {
 	}
 }
 
+const schedulerName string = `scheduler.alpha.kubernetes.io/name`
+const schedulerConflict string = `scheduler.alpha.kubernetes.io/conflict`
+
 func (kl *Kubelet) HandlePodAdditions(pods []*api.Pod) {
 	start := time.Now()
 	sort.Sort(podsByCreationTime(pods))
@@ -2382,7 +2392,34 @@ func (kl *Kubelet) HandlePodAdditions(pods []*api.Pod) {
 		// pods that are alive and the new pod.
 		activePods := kl.filterOutTerminatedPods(allPods)
 		// Check if we can admit the pod; if not, reject it.
+		// if ok, reason, message := kl.canAdmitPod(activePods, pod); ok {
+		//			if pod.ObjectMeta.Name == "counter1" {
+		//				if len(pod.Spec.NodeName) != 0 {
+		//					pod.Spec.NodeName = "hello"
+		//				}
+
+		//				if pod.Annotations != nil {
+		//					if _, ok := pod.ObjectMeta.Annotations[schedulerName]; ok {
+		//						pod.ObjectMeta.Annotations[schedulerName] = ""
+		//					}
+		//				}
+
+		//				pod, err := kl.kubeClient.Pods(pod.Namespace).Update(pod)
+		//				if err != nil {
+		//					glog.V(2).Infof("Error updating pod (%v)", err)
+		//				} else {
+		//					glog.V(3).Infof("Pod %q Spec.NodeName updated successfully", format.Pod(pod))
+		//				}
+		//			} else {
+		//				kl.rejectPod(pod, reason, message)
+		//			}
 		if ok, reason, message := kl.canAdmitPod(activePods, pod); !ok {
+			if pod.Annotations != nil {
+				if _, ok := pod.Annotations[schedulerName]; ok {
+					kl.handleSchedulePodConflict(pod)
+					continue
+				}
+			}
 			kl.rejectPod(pod, reason, message)
 			continue
 		}
@@ -2390,6 +2427,38 @@ func (kl *Kubelet) HandlePodAdditions(pods []*api.Pod) {
 		kl.dispatchWork(pod, kubetypes.SyncPodCreate, mirrorPod, start)
 		kl.probeManager.AddPod(pod)
 	}
+}
+
+func (kl *Kubelet) handleSchedulePodConflict(pod *api.Pod) {
+	go func() {
+		podFromServer, err := kl.kubeClient.Pods(pod.Namespace).Get(pod.Name)
+		if apierrors.IsNotFound(err) {
+			glog.Infof("Pod %q does not exist on the server", format.Pod(podFromServer))
+			return
+		}
+		if err == nil {
+			if podFromServer.Annotations != nil {
+				if _, ok := podFromServer.Annotations[schedulerName]; ok {
+					podFromServer.Annotations[schedulerName] = ""
+
+					if _, found := podFromServer.Annotations[schedulerConflict]; found {
+						podFromServer.Annotations[schedulerConflict] = ""
+					}
+
+					if len(podFromServer.Spec.NodeName) != 0 {
+						podFromServer.Spec.NodeName = ""
+					}
+					podFromServer, err := kl.kubeClient.Pods(podFromServer.Namespace).Update(podFromServer)
+					if err != nil {
+						glog.Infof("Error updating pod (%v)", err)
+					} else {
+						glog.Infof("Pod %q Spec.NodeName updated successfully", format.Pod(podFromServer))
+					}
+					return
+				}
+			}
+		}
+	}()
 }
 
 func (kl *Kubelet) HandlePodUpdates(pods []*api.Pod) {
