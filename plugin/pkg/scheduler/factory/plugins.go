@@ -63,6 +63,7 @@ var (
 
 const (
 	DefaultProvider = "DefaultProvider"
+	FakeProvider = "FakeProvider"
 )
 
 type AlgorithmProviderConfig struct {

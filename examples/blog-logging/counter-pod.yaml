@@ -2,11 +2,14 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: counter
+  annotations:
+    scheduler.alpha.kubernetes.io/policy: fakePolicy
 spec:
   containers:
   - name: count
     image: ubuntu:14.04
+    ports:
+    - hostPort: 8083
+      containerPort: 80
     args: [bash, -c, 
            'for ((i = 0; ; i++)); do echo "$i: $(date)"; sleep 1; done']
-
-

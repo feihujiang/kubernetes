@@ -223,6 +223,26 @@ func (f *ConfigFactory) CreateFromKeys(predicateKeys, priorityKeys sets.String, 
 
 	algo := scheduler.NewGenericScheduler(predicateFuncs, priorityConfigs, extenders, f.PodLister, r)
 
+	// Implement multipolicy
+	fakeProvider, err := GetAlgorithmProvider(FakeProvider)
+	if err != nil {
+		return nil, err
+	}
+
+	fakePredicateFuncs, err := getFitPredicateFunctions(fakeProvider.FitPredicateKeys, pluginArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	fakePriorityConfigs, err := getPriorityFunctionConfigs(fakeProvider.PriorityFunctionKeys, pluginArgs)
+	if err != nil {
+		return nil, err
+	}
+	fakeAlgo := scheduler.NewGenericScheduler(fakePredicateFuncs, fakePriorityConfigs, extenders, f.PodLister, r)
+
+	algoMap := make(map[string]algorithm.ScheduleAlgorithm)
+	algoMap["fakePolicy"] = fakeAlgo
+
 	podBackoff := podBackoff{
 		perPodBackoff: map[types.NamespacedName]*backoffEntry{},
 		clock:         realClock{},
@@ -234,9 +254,10 @@ func (f *ConfigFactory) CreateFromKeys(predicateKeys, priorityKeys sets.String, 
 	return &scheduler.Config{
 		Modeler: f.modeler,
 		// The scheduler only needs to consider schedulable nodes.
-		NodeLister: f.NodeLister.NodeCondition(getNodeConditionPredicate()),
-		Algorithm:  algo,
-		Binder:     &binder{f.Client},
+		NodeLister:   f.NodeLister.NodeCondition(getNodeConditionPredicate()),
+		Algorithm:    algo,
+		AlgorithmMap: algoMap,
+		Binder:       &binder{f.Client},
 		NextPod: func() *api.Pod {
 			return f.getNextPod()
 		},

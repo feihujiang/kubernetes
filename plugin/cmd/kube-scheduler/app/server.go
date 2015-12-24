@@ -67,11 +67,13 @@ func NewSchedulerServer() *SchedulerServer {
 		Port:              ports.SchedulerPort,
 		Address:           net.ParseIP("0.0.0.0"),
 		AlgorithmProvider: factory.DefaultProvider,
-		BindPodsQPS:       50.0,
-		BindPodsBurst:     100,
-		KubeAPIQPS:        50.0,
-		KubeAPIBurst:      100,
-		SchedulerName:     api.DefaultSchedulerName,
+		BindPodsQPS:       5000.0,
+		BindPodsBurst:     5000,
+		KubeAPIQPS:        5000.0,
+		KubeAPIBurst:      5000,
+		//		SchedulerName:     "fake-scheduler",
+		//		SchedulerName: "quick-scheduler",
+		SchedulerName: "slow-scheduler",
 	}
 	return &s
 }

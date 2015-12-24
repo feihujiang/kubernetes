@@ -71,10 +71,11 @@ type Scheduler struct {
 type Config struct {
 	// It is expected that changes made via modeler will be observed
 	// by NodeLister and Algorithm.
-	Modeler    SystemModeler
-	NodeLister algorithm.NodeLister
-	Algorithm  algorithm.ScheduleAlgorithm
-	Binder     Binder
+	Modeler      SystemModeler
+	NodeLister   algorithm.NodeLister
+	Algorithm    algorithm.ScheduleAlgorithm
+	AlgorithmMap map[string]algorithm.ScheduleAlgorithm
+	Binder       Binder
 
 	// Rate at which we can create pods
 	// If this field is nil, we don't have any rate limit.
@@ -128,7 +129,11 @@ func (s *Scheduler) scheduleOne() {
 	defer func() {
 		metrics.E2eSchedulingLatency.Observe(metrics.SinceInMicroseconds(start))
 	}()
-	dest, err := s.config.Algorithm.Schedule(pod, s.config.NodeLister)
+
+	// Implement multipolicy
+	//	dest, err := s.config.Algorithm.Schedule(pod, s.config.NodeLister)
+	dest, err := s.selectAlgorithm(pod).Schedule(pod, s.config.NodeLister)
+
 	metrics.SchedulingAlgorithmLatency.Observe(metrics.SinceInMicroseconds(start))
 	if err != nil {
 		glog.V(1).Infof("Failed to schedule: %+v", pod)
@@ -162,4 +167,17 @@ func (s *Scheduler) scheduleOne() {
 		assumed.Spec.NodeName = dest
 		s.config.Modeler.AssumePod(&assumed)
 	})
+}
+
+const schedulerPolicy string = `scheduler.alpha.kubernetes.io/policy`
+
+func (s *Scheduler) selectAlgorithm(pod *api.Pod) algorithm.ScheduleAlgorithm {
+	if policyName, found := pod.Annotations[schedulerPolicy]; found {
+		if algorithm, ok := s.config.AlgorithmMap[policyName]; ok {
+//			glog.Infof("s.config.AlgorithmMap, policyName: %q", policyName)
+			return algorithm
+		}
+	}
+//	glog.Infof("not found policy, using DefaultProvider, pod.Annotations: %v", pod.Annotations)
+	return s.config.Algorithm
 }

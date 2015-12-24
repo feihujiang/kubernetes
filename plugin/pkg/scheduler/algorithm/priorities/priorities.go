@@ -18,6 +18,7 @@ package priorities
 
 import (
 	"math"
+	"time"
 
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
@@ -115,10 +116,15 @@ func calculateResourceOccupancy(pod *api.Pod, node api.Node, pods []*api.Pod) sc
 // based on the minimum of the average of the fraction of requested to capacity.
 // Details: cpu((capacity - sum(requested)) * 10 / capacity) + memory((capacity - sum(requested)) * 10 / capacity) / 2
 func LeastRequestedPriority(pod *api.Pod, machinesToPods map[string][]*api.Pod, podLister algorithm.PodLister, nodeLister algorithm.NodeLister) (schedulerapi.HostPriorityList, error) {
+
 	nodes, err := nodeLister.List()
 	if err != nil {
 		return schedulerapi.HostPriorityList{}, err
 	}
+
+	// Sleep
+	numberOfNodes := len(nodes.Items)
+	time.Sleep(time.Duration(10 * numberOfNodes / 100) * time.Millisecond)
 
 	list := schedulerapi.HostPriorityList{}
 	for _, node := range nodes.Items {

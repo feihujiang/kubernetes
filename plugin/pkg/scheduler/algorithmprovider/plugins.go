@@ -19,4 +19,5 @@ package algorithmprovider
 
 import (
 	_ "k8s.io/kubernetes/plugin/pkg/scheduler/algorithmprovider/defaults"
+	_ "k8s.io/kubernetes/plugin/pkg/scheduler/algorithmprovider/fake"
 )
