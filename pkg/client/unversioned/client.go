@@ -31,6 +31,7 @@ type Interface interface {
 	ServicesNamespacer
 	EndpointsNamespacer
 	NodesInterface
+	SchedulersInterface
 	EventNamespacer
 	LimitRangesNamespacer
 	ResourceQuotasNamespacer
@@ -50,6 +51,10 @@ func (c *Client) ReplicationControllers(namespace string) ReplicationControllerI
 
 func (c *Client) Nodes() NodeInterface {
 	return newNodes(c)
+}
+
+func (c *Client) Schedulers() SchedulerInterface {
+	return newSchedulers(c)
 }
 
 func (c *Client) Events(namespace string) EventInterface {
