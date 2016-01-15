@@ -52,6 +52,7 @@ import (
 	namespaceetcd "k8s.io/kubernetes/pkg/registry/namespace/etcd"
 	"k8s.io/kubernetes/pkg/registry/node"
 	nodeetcd "k8s.io/kubernetes/pkg/registry/node/etcd"
+	scheduleretcd "k8s.io/kubernetes/pkg/registry/scheduler/etcd"
 	pvetcd "k8s.io/kubernetes/pkg/registry/persistentvolume/etcd"
 	pvcetcd "k8s.io/kubernetes/pkg/registry/persistentvolumeclaim/etcd"
 	podetcd "k8s.io/kubernetes/pkg/registry/pod/etcd"
@@ -277,6 +278,8 @@ func (m *Master) initV1ResourcesStorage(c *Config) {
 	nodeStorage, nodeStatusStorage := nodeetcd.NewREST(dbClient("nodes"), storageDecorator, c.KubeletClient, m.ProxyTransport)
 	m.nodeRegistry = node.NewRegistry(nodeStorage)
 
+	schedulerStorage, schedulerStatusStorage := scheduleretcd.NewREST(dbClient("schedulers"), storageDecorator)
+
 	podStorage := podetcd.NewStorage(
 		dbClient("pods"),
 		storageDecorator,
@@ -331,6 +334,8 @@ func (m *Master) initV1ResourcesStorage(c *Config) {
 		"endpoints":                     endpointsStorage,
 		"nodes":                         nodeStorage,
 		"nodes/status":                  nodeStatusStorage,
+		"schedulers":                    schedulerStorage,
+		"schedulers/status":             schedulerStatusStorage,
 		"events":                        eventStorage,
 
 		"limitRanges":                   limitRangeStorage,
