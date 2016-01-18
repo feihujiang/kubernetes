@@ -203,6 +203,9 @@ func (s *Scheduler) initialSchedulerStatus() (*api.Scheduler, error) {
 			Name:   s.schedulerName,
 			Labels: map[string]string{"kubernetes.io/scheduler": s.schedulerName},
 		},
+		Spec: api.SchedulerSpec{
+			SchedulerType: "testType",
+		},
 	}
 
 	if err := s.setSchedulerStatus(scheduler); err != nil {
