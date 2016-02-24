@@ -344,6 +344,8 @@ type KubeSchedulerConfiguration struct {
 	AlgorithmProvider string `json:"algorithmProvider"`
 	// policyConfigFile is the filepath to the scheduler policy configuration.
 	PolicyConfigFile string `json:"policyConfigFile"`
+	// multipolicyConfigFile is the filepath to the scheduler policy configuration.
+	MultiPolicyConfigFile string `json:"multiPolicyConfigFile"`
 	// enableProfiling enables profiling via web interface.
 	EnableProfiling bool `json:"enableProfiling"`
 	// kubeAPIQPS is the QPS to use while talking with kubernetes apiserver.

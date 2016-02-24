@@ -151,6 +151,53 @@ func (f *ConfigFactory) CreateFromProvider(providerName string) (*scheduler.Conf
 }
 
 // Creates a scheduler from the configuration file
+func (f *ConfigFactory) CreateFromMultiPolicyConfig(multiPolicy schedulerapi.MultiPolicy) (*scheduler.Config, error) {
+	glog.V(2).Infof("Creating scheduler from configuration: %v", multiPolicy)
+
+	// validate the policy configuration
+	for _, policy := range multiPolicy.Policies {
+		if err := validation.ValidatePolicy(policy); err != nil {
+			return nil, err
+		}
+	}
+
+	nameSlice := make([]string, 0)
+	predicateKeysSlice := make([]sets.String, 0)
+	priorityKeysSlice := make([]sets.String, 0)
+	extendersSlice := make([][]algorithm.SchedulerExtender, 0)
+	for _, policy := range multiPolicy.Policies {
+		nameSlice = append(nameSlice, policy.Name)
+		predicateKeys := sets.NewString()
+		for _, predicate := range policy.Predicates {
+			glog.V(2).Infof("Registering predicate: %s", predicate.Name)
+			predicateKeys.Insert(RegisterCustomFitPredicate(predicate))
+		}
+		predicateKeysSlice = append(predicateKeysSlice, predicateKeys)
+
+		priorityKeys := sets.NewString()
+		for _, priority := range policy.Priorities {
+			glog.V(2).Infof("Registering priority: %s", priority.Name)
+			priorityKeys.Insert(RegisterCustomPriorityFunction(priority))
+		}
+		priorityKeysSlice = append(priorityKeysSlice, priorityKeys)
+
+		extenders := make([]algorithm.SchedulerExtender, 0)
+		if len(policy.ExtenderConfigs) != 0 {
+			for ii := range policy.ExtenderConfigs {
+				glog.V(2).Infof("Creating extender with config %+v", policy.ExtenderConfigs[ii])
+				if extender, err := scheduler.NewHTTPExtender(&policy.ExtenderConfigs[ii], policy.APIVersion); err != nil {
+					return nil, err
+				} else {
+					extenders = append(extenders, extender)
+				}
+			}
+		}
+		extendersSlice = append(extendersSlice, extenders)
+	}
+	return f.CreateFromMultipleKeys(nameSlice, predicateKeysSlice, priorityKeysSlice, extendersSlice)
+}
+
+// Creates a scheduler from the configuration file
 func (f *ConfigFactory) CreateFromConfig(policy schedulerapi.Policy) (*scheduler.Config, error) {
 	glog.V(2).Infof("Creating scheduler from configuration: %v", policy)
 
@@ -183,6 +230,92 @@ func (f *ConfigFactory) CreateFromConfig(policy schedulerapi.Policy) (*scheduler
 		}
 	}
 	return f.CreateFromKeys(predicateKeys, priorityKeys, extenders)
+}
+
+func (f *ConfigFactory) CreateFromMultipleKeys(nameSlice []string, predicateKeysSlice, priorityKeysSlice []sets.String, extendersSlice [][]algorithm.SchedulerExtender) (*scheduler.Config, error) {
+	pluginArgs := PluginFactoryArgs{
+		PodLister:        f.PodLister,
+		ServiceLister:    f.ServiceLister,
+		ControllerLister: f.ControllerLister,
+		ReplicaSetLister: f.ReplicaSetLister,
+		// All fit predicates only need to consider schedulable nodes.
+		NodeLister: f.NodeLister.NodeCondition(getNodeConditionPredicate()),
+		NodeInfo:   &predicates.CachedNodeInfo{f.NodeLister},
+		PVInfo:     f.PVLister,
+		PVCInfo:    f.PVCLister,
+	}
+
+	// Watch and queue pods that need scheduling.
+	cache.NewReflector(f.createUnassignedNonTerminatedPodLW(), &api.Pod{}, f.PodQueue, 0).RunUntil(f.StopEverything)
+
+	// Begin populating scheduled pods.
+	go f.scheduledPodPopulator.Run(f.StopEverything)
+
+	// Watch nodes.
+	// Nodes may be listed frequently, so provide a local up-to-date cache.
+	cache.NewReflector(f.createNodeLW(), &api.Node{}, f.NodeLister.Store, 0).RunUntil(f.StopEverything)
+
+	// Watch PVs & PVCs
+	// They may be listed frequently for scheduling constraints, so provide a local up-to-date cache.
+	cache.NewReflector(f.createPersistentVolumeLW(), &api.PersistentVolume{}, f.PVLister.Store, 0).RunUntil(f.StopEverything)
+	cache.NewReflector(f.createPersistentVolumeClaimLW(), &api.PersistentVolumeClaim{}, f.PVCLister.Store, 0).RunUntil(f.StopEverything)
+
+	// Watch and cache all service objects. Scheduler needs to find all pods
+	// created by the same services or ReplicationControllers/ReplicaSets, so that it can spread them correctly.
+	// Cache this locally.
+	cache.NewReflector(f.createServiceLW(), &api.Service{}, f.ServiceLister.Store, 0).RunUntil(f.StopEverything)
+
+	// Watch and cache all ReplicationController objects. Scheduler needs to find all pods
+	// created by the same services or ReplicationControllers/ReplicaSets, so that it can spread them correctly.
+	// Cache this locally.
+	cache.NewReflector(f.createControllerLW(), &api.ReplicationController{}, f.ControllerLister.Store, 0).RunUntil(f.StopEverything)
+
+	// Watch and cache all ReplicaSet objects. Scheduler needs to find all pods
+	// created by the same services or ReplicationControllers/ReplicaSets, so that it can spread them correctly.
+	// Cache this locally.
+	cache.NewReflector(f.createReplicaSetLW(), &extensions.ReplicaSet{}, f.ReplicaSetLister.Store, 0).RunUntil(f.StopEverything)
+
+	algoMap := make(map[string]algorithm.ScheduleAlgorithm)
+	for index, _ := range predicateKeysSlice {
+		glog.V(2).Infof("creating scheduler with fit predicates '%v' and priority functions '%v", predicateKeysSlice[index], priorityKeysSlice[index])
+		predicateFuncs, err := getFitPredicateFunctions(predicateKeysSlice[index], pluginArgs)
+		if err != nil {
+			return nil, err
+		}
+
+		priorityConfigs, err := getPriorityFunctionConfigs(priorityKeysSlice[index], pluginArgs)
+		if err != nil {
+			return nil, err
+		}
+
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+		algo := scheduler.NewGenericScheduler(predicateFuncs, priorityConfigs, extendersSlice[index], f.PodLister, r)
+
+		algoMap[nameSlice[index]] = algo
+	}
+	glog.V(2).Infof("AlgorithmMap: %v", algoMap)
+
+	podBackoff := podBackoff{
+		perPodBackoff: map[types.NamespacedName]*backoffEntry{},
+		clock:         realClock{},
+
+		defaultDuration: 1 * time.Second,
+		maxDuration:     60 * time.Second,
+	}
+
+	return &scheduler.Config{
+		Modeler: f.modeler,
+		// The scheduler only needs to consider schedulable nodes.
+		NodeLister:   f.NodeLister.NodeCondition(getNodeConditionPredicate()),
+		AlgorithmMap: algoMap,
+		Binder:       &binder{f.Client},
+		NextPod: func() *api.Pod {
+			return f.getNextPod()
+		},
+		Error:          f.makeDefaultErrorFunc(&podBackoff, f.PodQueue),
+		StopEverything: f.StopEverything,
+	}, nil
 }
 
 // Creates a scheduler from a set of registered fit predicate keys and priority keys.

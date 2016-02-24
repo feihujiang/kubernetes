@@ -26,12 +26,18 @@ import (
 
 type Policy struct {
 	unversioned.TypeMeta `json:",inline"`
+	Name                 string `json:"name,omitempty"`
 	// Holds the information to configure the fit predicate functions
 	Predicates []PredicatePolicy `json:"predicates"`
 	// Holds the information to configure the priority functions
 	Priorities []PriorityPolicy `json:"priorities"`
 	// Holds the information to communicate with the extender(s)
 	ExtenderConfigs []ExtenderConfig `json:"extenders"`
+}
+
+type MultiPolicy struct {
+	unversioned.TypeMeta `json:",inline"`
+	Policies             []Policy `json:"policies"`
 }
 
 type PredicatePolicy struct {

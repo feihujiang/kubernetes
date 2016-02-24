@@ -34,7 +34,9 @@ func init() {
 	}
 	Scheme.AddKnownTypes(SchemeGroupVersion,
 		&Policy{},
+		&MultiPolicy{},		
 	)
 }
 
 func (obj *Policy) GetObjectKind() unversioned.ObjectKind { return &obj.TypeMeta }
+func (obj *MultiPolicy) GetObjectKind() unversioned.ObjectKind { return &obj.TypeMeta }

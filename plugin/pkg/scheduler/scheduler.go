@@ -20,6 +20,7 @@ package scheduler
 // contrib/mesos/pkg/scheduler/.
 
 import (
+	"fmt"
 	"time"
 
 	"k8s.io/kubernetes/pkg/api"
@@ -71,10 +72,11 @@ type Scheduler struct {
 type Config struct {
 	// It is expected that changes made via modeler will be observed
 	// by NodeLister and Algorithm.
-	Modeler    SystemModeler
-	NodeLister algorithm.NodeLister
-	Algorithm  algorithm.ScheduleAlgorithm
-	Binder     Binder
+	Modeler      SystemModeler
+	NodeLister   algorithm.NodeLister
+	Algorithm    algorithm.ScheduleAlgorithm
+	AlgorithmMap map[string]algorithm.ScheduleAlgorithm
+	Binder       Binder
 
 	// NextPod should be a function that blocks until the next pod
 	// is available. We don't use a channel for this, because scheduling
@@ -112,7 +114,22 @@ func (s *Scheduler) scheduleOne() {
 
 	glog.V(3).Infof("Attempting to schedule: %+v", pod)
 	start := time.Now()
-	dest, err := s.config.Algorithm.Schedule(pod, s.config.NodeLister)
+
+	var algorithm algorithm.ScheduleAlgorithm
+	if len(s.config.AlgorithmMap) > 0 {
+		var err error
+		algorithm, err = s.selectAlgorithm(pod)
+		if err != nil {
+			glog.V(1).Infof("Failed to schedule: %+v", pod)
+			s.config.Recorder.Eventf(pod, api.EventTypeWarning, "FailedScheduling", "%v", err)
+			s.config.Error(pod, err)
+			return
+		}
+		glog.Infof("selectAlgorithm, algorithm: %v", algorithm)
+	} else {
+		algorithm = s.config.Algorithm
+	}	
+	dest, err := algorithm.Schedule(pod, s.config.NodeLister)
 	if err != nil {
 		glog.V(1).Infof("Failed to schedule: %+v", pod)
 		s.config.Recorder.Eventf(pod, api.EventTypeWarning, "FailedScheduling", "%v", err)
@@ -149,4 +166,17 @@ func (s *Scheduler) scheduleOne() {
 	})
 
 	metrics.E2eSchedulingLatency.Observe(metrics.SinceInMicroseconds(start))
+}
+
+const schedulerPolicy string = `scheduler.alpha.kubernetes.io/policy`
+
+func (s *Scheduler) selectAlgorithm(pod *api.Pod) (algorithm.ScheduleAlgorithm, error) {
+	if policyName, found := pod.Annotations[schedulerPolicy]; found {
+		glog.Infof("s.config.AlgorithmMap, policyName: %q", policyName)
+		if algorithm, ok := s.config.AlgorithmMap[policyName]; ok {
+			return algorithm, nil
+		}
+	}
+	//	glog.Infof("not found policy, using DefaultProvider, pod.Annotations: %v", pod.Annotations)
+	return nil, fmt.Errorf("Not found a matched policy")
 }

@@ -347,6 +347,7 @@ function start_kubeproxy {
     SCHEDULER_LOG=/tmp/kube-scheduler.log
     sudo -E "${GO_OUT}/kube-scheduler" \
       --v=${LOG_LEVEL} \
+	  --multi-policy-config-file="/home/src/k8s.io/kubernetes/examples/scheduler-multipolicy-config.json" \
       --master="http://${API_HOST}:${API_PORT}" >"${SCHEDULER_LOG}" 2>&1 &
     SCHEDULER_PID=$!
 }

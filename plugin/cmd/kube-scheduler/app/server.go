@@ -153,6 +153,30 @@ func Run(s *options.SchedulerServer) error {
 }
 
 func createConfig(s *options.SchedulerServer, configFactory *factory.ConfigFactory) (*scheduler.Config, error) {
+	var err error
+	glog.V(2).Infof("s.MultiPolicyConfigFile: %s", s.MultiPolicyConfigFile)
+//	s.MultiPolicyConfigFile = "/home/src/k8s.io/kubernetes/examples/scheduler-multipolicy-config.json"
+	if _, err = os.Stat(s.MultiPolicyConfigFile); err == nil {
+		var (
+			multiPolicy schedulerapi.MultiPolicy
+			configData  []byte
+		)
+		configData, err := ioutil.ReadFile(s.MultiPolicyConfigFile)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read multipolicy config: %v", err)
+		}
+		glog.V(2).Infof("ReadFile from MultiPolicyConfigFile: %s", configData)
+		if err := runtime.DecodeInto(latestschedulerapi.Codec, configData, &multiPolicy); err != nil {
+			return nil, fmt.Errorf("invalid configuration: %v", err)
+		}
+		return configFactory.CreateFromMultiPolicyConfig(multiPolicy)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	s.PolicyConfigFile = "/home/src/k8s.io/kubernetes/examples/scheduler-policy-config.json"
 	if _, err := os.Stat(s.PolicyConfigFile); err == nil {
 		var (
 			policy     schedulerapi.Policy
@@ -170,7 +194,7 @@ func createConfig(s *options.SchedulerServer, configFactory *factory.ConfigFacto
 
 	// if the config file isn't provided, use the specified (or default) provider
 	// check of algorithm provider is registered and fail fast
-	_, err := factory.GetAlgorithmProvider(s.AlgorithmProvider)
+	_, err = factory.GetAlgorithmProvider(s.AlgorithmProvider)
 	if err != nil {
 		return nil, err
 	}
